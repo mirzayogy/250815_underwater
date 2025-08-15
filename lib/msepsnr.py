@@ -197,3 +197,103 @@ if __name__ == "__main__":
         device=None,
         data_range=args.data_range,
     )
+
+
+def evaluate_folders_df(
+    df,
+    out_csv_string: Path,
+    ref_col: str = "ref_path",
+    pred_col: str = "pred_path",
+    device: Optional[torch.device] = None,
+    data_range: Optional[float] = None,
+) -> None:
+    """
+    Hitung MSE & PSNR berdasarkan pasangan path dari DataFrame.
+    
+    Args:
+        df: pandas.DataFrame dengan kolom ref_col & pred_col berisi path file.
+        out_csv: Path file CSV hasil.
+        ref_col, pred_col: nama kolom untuk path referensi & prediksi.
+        device: device PyTorch (default: cuda jika tersedia).
+        data_range: None untuk auto (1.0 atau 255.0) atau angka manual.
+    """
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    rows: List[Dict] = []
+    n_ok = 0
+    mse_all = []
+    psnr_all = []
+
+    print(f"Menilai {len(df)} file...")
+    for idx, row in df.iterrows():
+        try:
+            ref_path = Path(row[ref_col])
+            pred_path = Path(row[pred_col])
+
+            ref = load_image_tensor(ref_path)
+            pred = load_image_tensor(pred_path)
+
+            # Validasi ukuran & kanal (tanpa resize)
+            if ref.shape != pred.shape:
+                raise ValueError(
+                    f"Shape beda untuk baris {idx}: ref {tuple(ref.shape)} vs pred {tuple(pred.shape)}"
+                )
+
+            # Pindah device
+            ref_d = ref.to(device)
+            pred_d = pred.to(device)
+
+            # Data range otomatis
+            dr = _infer_data_range(ref_d) if data_range is None else float(data_range)
+
+            # Hitung metrik
+            mse_val = mse_per_image(ref_d, pred_d)[0].item()
+            psnr_val = psnr_from_mse(torch.tensor([mse_val], device=device), dr)[0].item()
+
+            h, w = ref.shape[1], ref.shape[2]
+            c = ref.shape[0]
+            rows.append({
+                "index": idx,
+                "filename": row['label'],
+                "width": w,
+                "height": h,
+                "mse": mse_val,
+                "psnr": psnr_val,
+                "error": ""
+            })
+            mse_all.append(mse_val)
+            psnr_all.append(psnr_val)
+            n_ok += 1
+        except Exception as e:
+            rows.append({
+                "index": idx,
+                "filename": row['label'],
+                "width": "",
+                "height": "",
+                "mse": "",
+                "psnr": "",
+                "error": str(e),
+            })
+            print(f"[SKIP] baris {idx}: {e}")
+
+    # Tulis CSV
+    out_csv=Path(out_csv_string)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "index", "filename", "width", "height",
+        "mse", "psnr", "error"
+    ]
+    with out_csv.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(rows)
+
+    if n_ok > 0:
+        mse_mean = sum(mse_all) / n_ok
+        psnr_mean = sum(psnr_all) / n_ok
+        print(f"Selesai. Berhasil: {n_ok}/{len(df)}")
+        print(f"Rata-rata MSE : {mse_mean:.6f}")
+        print(f"Rata-rata PSNR: {psnr_mean:.6f} dB")
+    else:
+        print("Tidak ada pasangan yang valid untuk dihitung (semua gagal).")

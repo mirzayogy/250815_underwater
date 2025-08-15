@@ -1,6 +1,7 @@
 import torch # type: ignore
 import numpy as np # type: ignore
 from PIL import Image # type: ignore
+import os 
 
 # ---------- Util: RGB -> HSV (torch, vektorized) ----------
 def rgb_to_hsv_torch(rgb):
@@ -118,7 +119,7 @@ def _to_rgb_tensor(image):
     return t
 
 # ---------- Main extractor ----------
-def extract_color_stats_cuda(image):
+def extract_color_stats_cuda(image_path):
     """
     Compute (on CUDA):
       - mean & var: R,G,B
@@ -132,58 +133,69 @@ def extract_color_stats_cuda(image):
         raise RuntimeError("CUDA tidak tersedia. Pastikan PyTorch terinstall dengan dukungan CUDA.")
 
     device = torch.device('cuda')
-    x = _to_rgb_tensor(image).to(device)  # [1,3,H,W], 0..1
+    x = _to_rgb_tensor(image_path).to(device)  # [1,3,H,W], 0..1
     # RGB stats
     R, G, B = x[:, 0], x[:, 1], x[:, 2]
-    rgb_mean = {
-        'R': R.mean().item(),
-        'G': G.mean().item(),
-        'B': B.mean().item()
-    }
-    rgb_var = {
-        'R': R.var(unbiased=False).item(),
-        'G': G.var(unbiased=False).item(),
-        'B': B.var(unbiased=False).item()
-    }
+    
+    mean_R = R.mean().item()
+    mean_G = G.mean().item()
+    mean_B = B.mean().item()    
+
+    var_R = R.var(unbiased=False).item()
+    var_G = G.var(unbiased=False).item()
+    var_B = B.var(unbiased=False).item()
 
     # HSV stats
+    # Nilai H pada HSV berada pada rentang [0,1). L kira‑kira [0,100], dan a/b sekitar [-128, 127] sesuai standar CIE Lab (D65).
     hsv = rgb_to_hsv_torch(x)  # [1,3,H,W]
     Hc, Sc, Vc = hsv[:, 0], hsv[:, 1], hsv[:, 2]
-    hsv_mean = {'H': Hc.mean().item(), 'S': Sc.mean().item(), 'V': Vc.mean().item()}
-    hsv_var  = {'H': Hc.var(unbiased=False).item(), 'S': Sc.var(unbiased=False).item(), 'V': Vc.var(unbiased=False).item()}
+    mean_H = Hc.mean().item()
+    mean_S = Sc.mean().item()
+    mean_V = Vc.mean().item() 
+    var_H = Hc.var(unbiased=False).item()
+    var_S = Sc.var(unbiased=False).item()
+    var_V = Vc.var(unbiased=False).item()   
 
     # LAB stats
     lab = rgb_to_lab_torch(x)  # [1,3,H,W]
     Lc, ac, bc = lab[:, 0], lab[:, 1], lab[:, 2]
-    lab_mean = {'L': Lc.mean().item(), 'a': ac.mean().item(), 'b': bc.mean().item()}
-    lab_var  = {'L': Lc.var(unbiased=False).item(), 'a': ac.var(unbiased=False).item(), 'b': bc.var(unbiased=False).item()}
+    mean_L = Lc.mean().item()
+    mean_a = ac.mean().item()
+    mean_b = bc.mean().item()
+    var_L = Lc.var(unbiased=False).item()
+    var_a = ac.var(unbiased=False).item()
+    var_b = bc.var(unbiased=False).item()
 
     # Ratios
     eps = 1e-12
     rg = R / (G + eps)
     gb = G / (B + eps)
     br = B / (R + eps)
-    ratio_mean = {
-        'R_over_G': rg.mean().item(),
-        'G_over_B': gb.mean().item(),
-        'B_over_R': br.mean().item(),
-    }
-    ratio_var = {
-        'R_over_G': rg.var(unbiased=False).item(),
-        'G_over_B': gb.var(unbiased=False).item(),
-        'B_over_R': br.var(unbiased=False).item(),
-    }
 
-    return {
-        'rgb_mean': rgb_mean,
-        'rgb_var': rgb_var,
-        'hsv_mean': hsv_mean,
-        'hsv_var': hsv_var,
-        'lab_mean': lab_mean,
-        'lab_var': lab_var,
-        'ratio_mean': ratio_mean,
-        'ratio_var': ratio_var,
-    }
+    mean_R_over_G = rg.mean().item()
+    mean_G_over_B = gb.mean().item()
+    mean_B_over_R = br.mean().item()
+
+    var_R_over_G = rg.var(unbiased=False).item()
+    var_G_over_B = gb.var(unbiased=False).item()
+    var_B_over_R = br.var(unbiased=False).item()
+   
+
+
+    head, filename = os.path.split(image_path)
+    result=[filename, mean_R, mean_G, mean_B, var_R, var_G, var_B, mean_H, mean_S, mean_V, var_H, var_S, var_V, mean_L, mean_a, mean_b, var_L, var_a, var_b, mean_R_over_G, mean_G_over_B, mean_B_over_R, var_R_over_G, var_G_over_B, var_B_over_R]
+    return result
+
+    # return {
+    #     'rgb_mean': rgb_mean,
+    #     'rgb_var': rgb_var,
+    #     'hsv_mean': hsv_mean,
+    #     'hsv_var': hsv_var,
+    #     'lab_mean': lab_mean,
+    #     'lab_var': lab_var,
+    #     'ratio_mean': ratio_mean,
+    #     'ratio_var': ratio_var,
+    # }
 
 # ---------- Contoh pemakaian di Jupyter ----------
 # stats = extract_color_stats_cuda("contoh_gambar.jpg")
