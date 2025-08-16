@@ -3,7 +3,7 @@ from PIL import Image # type: ignore
 import cv2 # type: ignore
 import math
 from scipy import ndimage # type: ignore
-
+import os
 
 def psnrmse(reference, original):
     R2 = np.amax(reference)**2
@@ -211,3 +211,9 @@ def getScore(pil_image):
     UICM, UISM, UIConM, UIQM = getUIQM(img)
     UCIQE = getUCIQE(img)
     return UICM, UISM, UIConM, UIQM, UCIQE
+
+def getScore_from_path(image_path, device=None):
+    pil = Image.open(image_path).convert("RGB")
+    UICM, UISM, UIConM, UIQM, UCIQE = getScore(pil) # 890(25.5s) vs 50(1.5s)
+    filename = os.path.basename(image_path)
+    return filename, UIQM, UCIQE
